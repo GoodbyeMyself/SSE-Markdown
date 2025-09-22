@@ -1,0 +1,300 @@
+// import "../assets/index.less";
+import "highlight.js/styles/monokai.css";
+
+import $ from "jquery";
+
+import hljs from "highlight.js/lib/core";
+
+import javascript from "highlight.js/lib/languages/javascript";
+import vbscript from "highlight.js/lib/languages/vbscript";
+import python from "highlight.js/lib/languages/python";
+import matlab from "highlight.js/lib/languages/matlab";
+import csharp from "highlight.js/lib/languages/csharp";
+import shell from "highlight.js/lib/languages/shell";
+import vhdl from "highlight.js/lib/languages/vhdl";
+import java from "highlight.js/lib/languages/java";
+import css from "highlight.js/lib/languages/css";
+import xml from "highlight.js/lib/languages/xml";
+import sql from "highlight.js/lib/languages/sql";
+import cpp from "highlight.js/lib/languages/cpp";
+import c from "highlight.js/lib/languages/c";
+
+import ClipboardJS from "clipboard";
+
+import { createApp, h, reactive, nextTick } from "vue";
+import { getComponentForTag } from "./custom-tags";
+
+hljs.registerLanguage("javascript", javascript);
+hljs.registerLanguage("vbscript", vbscript);
+hljs.registerLanguage("python", python);
+hljs.registerLanguage("matlab", matlab);
+hljs.registerLanguage("csharp", csharp);
+hljs.registerLanguage("shell", shell);
+hljs.registerLanguage("vhdl", vhdl);
+hljs.registerLanguage("java", java);
+hljs.registerLanguage("html", xml);
+hljs.registerLanguage("xml", xml);
+hljs.registerLanguage("css", css);
+hljs.registerLanguage("sql", sql);
+hljs.registerLanguage("cpp", cpp);
+hljs.registerLanguage("c", c);
+
+hljs.configure({ ignoreUnescapedHTML: true });
+
+/**
+ * 高亮代码块
+ * @param {Element} element 包含 pre code 代码块的元素
+ */
+function highlightCode(element) {
+    const codeEls = element.querySelectorAll("pre code");
+    codeEls.forEach((el) => {
+        hljs.highlightElement(el);
+    });
+}
+
+/**
+ * 给代码块添加复制按钮
+ * @param {Element} element 包含 pre code 代码块的元素
+ */
+function buildCopyButton(element) {
+    let $pres = $(element).find("pre");
+    if (!$pres.length) return;
+
+    $pres.each(function () {
+        var t = $(this).children("code").text();
+
+        // 创建按钮
+        var btn = $('<span class="copy">复制</span>').attr(
+            "data-clipboard-text",
+            t
+        );
+
+        $(this).prepend(btn);
+
+        var c = new ClipboardJS(btn[0]);
+        c.on("success", function () {
+            btn.addClass("copyed").text("复制成功");
+            setTimeout(function () {
+                btn.text("复制").removeClass("copyed");
+            }, 1000);
+        });
+        c.on("error", function () {
+            btn.text("复制失败");
+        });
+    });
+}
+
+// 存储已创建的组件实例
+const mountedComponents = new Map();
+//保存上次更新的内容
+let lastUpdatedContent = "";
+let lastUpdatedIsComplete = false;
+
+/**
+ * 处理自定义标签
+ * @param {Element} element 包含自定义标签的元素
+ */
+export function processCustomTags(element) {
+    // 查找具有自定义标签类的所有元素
+    const customTags = element.querySelectorAll(".custom-tag");
+
+    if (!customTags.length) return;
+
+    customTags.forEach((tagElement, index) => {
+        try {
+            // 获取标签ID和标签名称
+            const tagId = tagElement.getAttribute("data-tag-id");
+
+            const tagName = tagElement.getAttribute("data-tag-name");
+
+            const isComplete = tagElement.getAttribute("data-tag-complete") === "true";
+
+            // 获取内容
+            const chunkData = decodeURIComponent(
+                tagElement.getAttribute("data-tag-content")
+            );
+
+            // 检查是否已经挂载了组件
+            const existingApp = mountedComponents.get(tagId);
+
+            if (existingApp) {
+                //如果上次更新的内容和当前内容相同，则不进行更新
+                if (
+                    lastUpdatedContent === chunkData &&
+                    lastUpdatedIsComplete === isComplete
+                ) {
+                    return;
+                }
+
+                //保存上次更新的内容
+                lastUpdatedContent = chunkData;
+                lastUpdatedIsComplete = isComplete;
+
+                nextTick(() => {
+                    existingApp.component.content = chunkData;
+                    existingApp.component.isComplete = isComplete;
+                });
+                return;
+            }
+
+            // 获取对应的组件
+            const component = getComponentForTag(tagName);
+
+            if (!component) {
+                console.warn(`未找到组件: ${tagName}`);
+                return;
+            }
+
+            // 创建响应式数据对象
+            const componentData = reactive({
+                content: chunkData,
+                isComplete: isComplete,
+            });
+
+            // 创建Vue应用实例并挂载组件
+            const app = createApp({
+                setup() {
+                    return { component: componentData };
+                },
+                render() {
+                    return h(component, {
+                        content: this.component.content,
+                        isComplete: this.component.isComplete,
+                    });
+                },
+            });
+
+            // 挂载组件并保存实例
+            app.mount(tagElement);
+            mountedComponents.set(tagId, {
+                app,
+                component: componentData,
+            });
+        } catch (error) {
+            console.error("处理自定义标签时出错:", error);
+        }
+    });
+}
+
+/** 构建生成中的 markdown 的内容 */
+export function buildCodeBlock(element) {
+    highlightCode(element);
+    buildCopyButton(element);
+}
+
+/** 核心函数, 对比节点的内容 实现动态更新 markdown 的 div 而不是用 innerHTML 的属性全部刷新 */
+export function deepCloneAndUpdate(div1, div2) {
+    // 递归比较和更新 div1 和 div2 的子节点
+    function compareAndUpdate(node1, node2) {
+        //如果是自定义标签，则不进行更新
+        if (node1 && node1.classList && node1.classList.contains("custom-tag")) {
+            node1.setAttribute(
+                "data-tag-content",
+                node2.getAttribute("data-tag-content")
+            );
+            node1.setAttribute(
+                "data-tag-complete",
+                node2.getAttribute("data-tag-complete")
+            );
+            return;
+        }
+
+        // 情况 1：node1 是文本节点，更新文本内容
+        if (
+            node1 &&
+            node1.nodeType === Node.TEXT_NODE &&
+            node2.nodeType === Node.TEXT_NODE
+        ) {
+            if (node1.nodeValue !== node2.nodeValue) {
+                // 更新文本内容
+                node1.nodeValue = node2.nodeValue;
+            }
+            return;
+        }
+
+        // 情况 2：node1 和 node2 的标签名不同，替换整个节点
+        if (!node1 || node1.tagName !== node2.tagName) {
+            // 克隆 node2 节点
+            const newNode = node2.cloneNode(true);
+            if (node1) {
+                // 替换旧节点
+                node1.parentNode.replaceChild(newNode, node1);
+            } else {
+                // 如果 node1 不存在，直接新增
+                node2.parentNode.appendChild(newNode);
+            }
+            return;
+        }
+
+        // 情况 3：节点的 class 或其他属性更新, 注意对root节点的保护
+        if (
+            node1.className !== "article-content" &&
+            node1.className !== node2.className
+        ) {
+            // 3.1 更新 className
+            node1.className = node2.className;
+        }
+
+        // 3.2 对 id 的更新 注意对root节点的保护
+        if (node1.id !== "article-content" && node1.id !== node2.id) {
+            node1.id = node2.id;
+        }
+
+        // 3.3 对 style 的更新 - 添加空值检查
+        if (
+            node1.style &&
+            node2.style &&
+            node1.style.cssText !== node2.style.cssText
+        ) {
+            node1.style.cssText = node2.style.cssText;
+        }
+
+        // 检查并复制data属性
+        if (node2.dataset) {
+            for (const key in node2.dataset) {
+                if (node1.dataset && node1.dataset[key] !== node2.dataset[key]) {
+                    node1.dataset[key] = node2.dataset[key];
+                }
+            }
+        }
+
+        // 情况 4：递归对比和更新子节点
+        const children1 = Array.from(node1.childNodes || []); // node1 的所有子节点
+        const children2 = Array.from(node2.childNodes || []); // node2 的所有子节点
+
+        // 遍历 node2 的子节点，逐个与 node1 的对应子节点比较
+        children2.forEach((child2, index) => {
+            const child1 = children1[index];
+            if (!child1) {
+                // 如果 child1 不存在，直接克隆 child2 并添加到 node1
+                const newChild = child2.cloneNode(true);
+                node1.appendChild(newChild);
+            } else {
+                // 如果 child1 存在，递归比较和更新
+                compareAndUpdate(child1, child2);
+            }
+        });
+
+        // 删除 node1 中多余的子节点
+        if (children1.length > children2.length) {
+            for (let i = children2.length; i < children1.length; i++) {
+                if (children1[i] && children1[i].parentNode === node1) {
+                    node1.removeChild(children1[i]);
+                }
+            }
+        }
+    }
+
+    // 防止空值错误
+    if (!div1 || !div2) {
+        console.warn("deepCloneAndUpdate 传入了空的节点");
+        return;
+    }
+
+    // 从 div2 根节点开始与 div1 比较
+    try {
+        compareAndUpdate(div1, div2);
+    } catch (error) {
+        console.error("更新DOM时出错:", error);
+    }
+}
