@@ -34,7 +34,9 @@ const renderMarkdown = (data) => {
     if (!el) return;
 
     const tmpDiv = document.createElement("div");
-    tmpDiv.innerHTML = markdownIt.render(data); // 只渲染当前的块
+
+    // 只渲染当前的块
+    tmpDiv.innerHTML = markdownIt.render(data);
     buildCodeBlock(tmpDiv);
 
     // 这里不再拼接 htmlData，而是每次渲染独立的块
